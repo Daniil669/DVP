@@ -1,12 +1,12 @@
 from fastapi import APIRouter
-from data.sample_data import sample_data
+from data.sample_data import current_data
 
 router = APIRouter()
 @router.get("/nodes/{node_id}/children")
 async def get_node_children(node_id: str):
     children = []
     parent = []
-    for relationship in sample_data:
+    for relationship in current_data:
         if relationship["parent_item"] == node_id:
             child_info = {
                 "id": relationship["child_item"],
@@ -28,7 +28,7 @@ async def get_node_children(node_id: str):
 
     search_id_exists = any(
         rel["parent_item"] == node_id or rel["child_item"] == node_id 
-        for rel in sample_data
+        for rel in current_data
     )
     
     if not search_id_exists:

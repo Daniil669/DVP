@@ -1,18 +1,18 @@
 from fastapi import APIRouter
-from data.sample_data import sample_data
+from data.sample_data import current_data
 
 router = APIRouter()
 @router.get("/tree/full")
 async def get_full_tree():
     all_items = set()
-    for item in sample_data:
+    for item in current_data:
         all_items.add(item["parent_item"])
         all_items.add(item["child_item"])
         
     tree_nodes=[]
     for item in all_items:
         children =[]
-        for relationship in sample_data:
+        for relationship in current_data:
             if relationship["parent_item"] == item:
                 children.append({
                     "id": relationship["child_item"],
