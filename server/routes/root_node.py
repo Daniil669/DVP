@@ -1,3 +1,4 @@
+
 # server/routes/root_node.py
 from __future__ import annotations
 from typing import Optional, List
@@ -51,3 +52,4 @@ async def get_root_node():
         "root_nodes": roots,
         "count": len(roots),
     }
+
