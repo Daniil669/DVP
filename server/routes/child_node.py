@@ -1,46 +1,62 @@
-from fastapi import APIRouter
-from data.sample_data import current_data
+
+# server/routes/child_node.py
+from __future__ import annotations
+from fastapi import APIRouter, Query
+from utils.loader import ensure_data_loaded
+from utils.sample_data import get_sample_data
 
 router = APIRouter()
-@router.get("/nodes/{node_id}/children")
-async def get_node_children(node_id: str):
-    children = []
-    parent = []
-    for relationship in current_data:
-        if relationship["parent_item"] == node_id:
-            child_info = {
-                "id": relationship["child_item"],
-                "name": relationship["child_item"],
-                "sequence_no": relationship["sequence_no"],
-                "level": relationship["level"],
+
+@router.get("/child_node")
+async def get_child_node(
+    node_id: str = Query(..., description="Parent node whose children to fetch"),
+    limit: int | None = Query(None, ge=1, description="Max number of children to return"),
+):
+    # Ensure memory is hydrated from the newest CSV if needed
+    ensure_data_loaded()
+
+    data = get_sample_data()
+
+    # Does the node exist anywhere (as parent or child)?
+    exists = any(d["parent_item"] == node_id or d["child_item"] == node_id for d in data)
+    if not exists:
+        return {"error": f"Node {node_id} not found", "children": [], "count_children": 0}
+
+    # Find this node's parent (if any)
+    parent = next(
+        (
+            {
+                "id": d["parent_item"],
+                "name": d["parent_item"],
+                "sequence_no": d["sequence_no"],
+                "level": d["level"],
             }
-            children.append(child_info)
-        if relationship["child_item"] == node_id:
-            parent_info = {
-                "id": relationship["parent_item"],
-                "name": relationship["parent_item"],
-                "sequence_no": relationship["sequence_no"],
-                "level": relationship["level"],
-            }
-            parent.append(parent_info)
-    
+            for d in data
+            if d["child_item"] == node_id
+        ),
+        None,
+    )
+
+    # Collect children ordered by sequence_no
+    children = [
+        {
+            "id": d["child_item"],
+            "name": d["child_item"],
+            "sequence_no": d["sequence_no"],
+            "level": d["level"],
+        }
+        for d in data
+        if d["parent_item"] == node_id
+    ]
     children.sort(key=lambda x: x["sequence_no"])
 
-    search_id_exists = any(
-        rel["parent_item"] == node_id or rel["child_item"] == node_id 
-        for rel in current_data
-    )
-    
-    if not search_id_exists:
-        return {
-            "error": f"Node {node_id} not found in data",
-            "children": [],
-            "count": 0
-        }
-    
+    if limit is not None:
+        children = children[:limit]
+
     return {
         "search_id": node_id,
-        "parent": parent[0] if parent else None,
+        "parent": parent,
         "children": children,
-        "count_children": len(children)
+        "count_children": len(children),
     }
+
