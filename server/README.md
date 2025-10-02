@@ -1,6 +1,11 @@
-# FastAPI Server – README
+# FastAPI Server – README (Updated)
 
-A small FastAPI backend that accepts a CSV of parent–child relationships, saves the file locally, loads it into memory, and exposes endpoints to fetch **root node(s)** and the **children of a node**.
+This backend accepts a CSV of parent–child relationships **or** serves data from a database connection. It lets you:
+
+- Upload/choose a **CSV** stored on the server and query root/children.
+- Register and activate **database** connections (SQLite by default; Postgres supported later).
+- List available sources (CSVs + DB connections) and **switch** the active source.
+- Query **root node(s)** and **children** from the active source.
 
 ---
 
@@ -11,7 +16,7 @@ A small FastAPI backend that accepts a CSV of parent–child relationships, save
 - pip
 
 ```bash
-# from the server/ directory (or cd server)
+# from the server/ directory
 python -m venv .venv
 
 # macOS/Linux
@@ -26,11 +31,14 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+Environment variables (optional):
+- `DATABASE_URL`: graph DB URL (default: `sqlite+aiosqlite:///./data/app.db`)
+- `REGISTRY_DATABASE_URL`: registry DB URL (default: `sqlite+aiosqlite:///./data/registry.db`)
+- `SQL_ECHO=1`: SQLAlchemy echo logs
+
 ---
 
 ## 2) Run the server locally
-
-### Just use command: python main.py
 
 From the `server/` directory:
 
@@ -39,38 +47,123 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 - Swagger UI: `http://localhost:8000/docs`
-- Uploaded CSVs are saved to `server/data/` (auto-created).
+- CSV uploads and stored CSVs are placed in `server/data/` (auto-created).
+- On startup, tables for both the **graph DB** and **registry DB** are created automatically.
 
 **CSV format (required headers):**
 ```
 parent_item,child_item,sequence_no,level
 ```
-- Delimiter: **auto-detected** (`;` or `,` supported)
+- Delimiter: **auto-detected** (`;` or `,` both work)
 - Headers are case-insensitive; BOM/whitespace are handled
 
 ---
 
-## 3) Endpoints
+## 3) Sources model
+
+This server can serve data from **one active source** at a time:
+
+- **CSV source**: in-memory dataset loaded from a CSV file under `server/data/*.csv`
+- **DB source**: dataset available through the configured graph database connection
+
+A separate **registry database** stores:
+- Known DB connections (name, URL, optional API key)
+- The **active source** (e.g., `csv:myfile.csv` or `db:3`)
+
+You can switch the active source with `/api/sources/select` (see below).
+
+---
+
+## 4) Endpoints
 
 Base prefix: **`/api`**
 
-### 3.1 `POST /api/root_node`
+### 4.1 List available sources
+`GET /api/sources`
 
-Upload a CSV, save it to `data/`, load it into memory, and return the **root node(s)** (parents that never appear as children).
-
-**Request (multipart/form-data):**
-- `file`: the `.csv` file
-
-**cURL**
-```bash
-curl -X POST "http://localhost:8000/api/root_node"   -H "accept: application/json"   -H "Content-Type: multipart/form-data"   -F "file=@where_used.csv"
-```
-
-**Sample response**
+Response example:
 ```json
 {
-  "message": "Root node(s) computed",
-  "saved_file": "20250925-112233-where_used.csv",
+  "csv_files": [
+    { "name": "where_used_sample_100_lines_student_version.csv", "size": 12345, "modified_at": 1727820000 }
+  ],
+  "db_connections": [
+    { "id": 1, "name": "local-sqlite", "url": "sqlite+aiosqlite:///./data/app.db", "is_active": true, "has_api_key": true }
+  ],
+  "active": { "type": "csv", "value": "where_used_sample_100_lines_student_version.csv" }
+}
+```
+
+---
+
+### 4.2 Select active source (CSV or DB)
+`POST /api/sources/select`
+
+**Select a CSV stored on the server:**
+```http
+POST /api/sources/select
+Content-Type: application/json
+
+{
+  "type": "csv",
+  "filename": "where_used_sample_100_lines_student_version.csv"
+}
+```
+- Loads the CSV into memory and sets it as the active source.
+
+**Select a previously registered DB connection:**
+```http
+POST /api/sources/select
+x-api-key: secret123
+Content-Type: application/json
+
+{
+  "type": "db",
+  "connection_id": 1
+}
+```
+- Switches the graph DB context to this connection.
+- If the connection has an `api_key`, you must pass it via `x-api-key` header (simple auth; can be hardened later).
+
+---
+
+### 4.3 Register a DB connection
+`POST /api/db/register`
+
+Body:
+```json
+{
+  "name": "local-sqlite",
+  "url": "sqlite+aiosqlite:///./data/app.db",
+  "api_key": "secret123"
+}
+```
+- Stores the connection in the registry DB (not active by default).
+
+---
+
+### 4.4 Upload CSV & compute roots (optional upload)
+`POST /api/root_node`
+
+- If you include a file, it will be validated, saved (idempotent name), loaded, and set as active CSV.
+- If you don’t include a file, the endpoint serves the current **active source** (CSV or DB).
+
+**With file (multipart/form-data):**
+```bash
+curl -X POST "http://localhost:8000/api/root_node" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@where_used_sample_100_lines_student_version.csv"
+```
+**Without file (use current active source):**
+```bash
+curl -X POST "http://localhost:8000/api/root_node" -H "accept: application/json"
+```
+
+Sample response:
+```json
+{
+  "message": "Root node(s) computed (CSV)",
   "root_nodes": ["MAT000001", "MAT000002"],
   "count": 2
 }
@@ -78,24 +171,17 @@ curl -X POST "http://localhost:8000/api/root_node"   -H "accept: application/jso
 
 ---
 
-### 3.2 `GET /api/child_node`
+### 4.5 Read-only roots
+`GET /api/root_node`
 
-Return the **children** of a given node, ordered by `sequence_no`. Optionally limit how many children to return.
+Returns roots from the **active source** (CSV or DB); no upload required.
 
-**Query params**
-- `node_id` (required): the parent node whose children to fetch
-- `limit` (optional, int ≥ 1): maximum number of children to return
+---
 
-**Examples**
-```bash
-# all children
-curl "http://localhost:8000/api/child_node?node_id=MAT000001"
+### 4.6 Children of a node (from active source)
+`GET /api/child_node?node_id=MAT000001&limit=3`
 
-# first 3 children
-curl "http://localhost:8000/api/child_node?node_id=MAT000001&limit=3"
-```
-
-**Sample response**
+Response example:
 ```json
 {
   "search_id": "MAT000001",
@@ -109,15 +195,4 @@ curl "http://localhost:8000/api/child_node?node_id=MAT000001&limit=3"
 }
 ```
 
-If `node_id` does not exist:
-```json
-{ "error": "Node XYZ not found", "children": [], "count_children": 0 }
-```
-
 ---
-
-## Notes & Tips
-
-- CORS is open for development (`allow_origins=["*"]`).
-- Each CSV upload **replaces** the in-memory store.
-- Check server logs for the exact saved file name in `server/data/`.
