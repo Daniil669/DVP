@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import { ReactFlow, applyNodeChanges, applyEdgeChanges, addEdge, type NodeChange, type Node, type Edge, type EdgeChange, type Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import Offcanvas from 'react-bootstrap/Offcanvas'
+import Button from 'react-bootstrap/Button';
+import Form from 'react-bootstrap/Form';
+import ListGroup from 'react-bootstrap/ListGroup';
 
 const rootNodes: Node[] = [
   { id: 'r1', position: { x: 0, y: 0 }, data: { label: 'Root Node' }, type: 'default' },
@@ -15,6 +19,10 @@ const initialEdges: Edge[] = [
 export default function Graph(){
   const [nodes, setNodes] = useState<Node[]>(rootNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const [show, setShow] = useState(false);
+
+  const handleClose = () => setShow(false);
+  const handleShow = () => setShow(true);
  
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nodesSnapshot) => applyNodeChanges(changes, nodesSnapshot)),
@@ -29,8 +37,42 @@ export default function Graph(){
     (params: Connection) => setEdges((edgesSnapshot) => addEdge(params, edgesSnapshot)),
     [],
   );
+
+  const handleSearch = () => 
+  {
+    handleClose();
+  }
  
   return (
+    <div className="graph-page-container">
+
+    <Button variant="primary" onClick={handleShow} style={{ position: 'absolute', top: '10px', left: '10px' }}>
+        Open side menu
+      </Button>
+
+      <Offcanvas show={show} onHide={handleClose}>
+        <Offcanvas.Header closeButton>
+          <Offcanvas.Title>Manage data</Offcanvas.Title>
+        </Offcanvas.Header>
+        <Offcanvas.Body>
+          <Form>
+            <Form.Group className="mb-3" controlId="exampleForm.ControlInput1">
+              <Form.Label>Search on the graph</Form.Label>
+              <div style={{display: 'flex', gap: '10px'}}>
+              <Form.Control type="text" placeholder="Enter the search string" />
+              <Button variant="primary" onClick={handleSearch}>Search</Button></div>
+            </Form.Group>
+          </Form><br/>
+          <Form.Label>The list of recent files</Form.Label>
+           <ListGroup>
+              <ListGroup.Item>Cras justo odio</ListGroup.Item>
+              <ListGroup.Item>Dapibus ac facilisis in</ListGroup.Item>
+              <ListGroup.Item>Morbi leo risus</ListGroup.Item>
+              <ListGroup.Item>Porta ac consectetur ac</ListGroup.Item>
+            </ListGroup>
+
+        </Offcanvas.Body>
+      </Offcanvas>
     <div style={{ width: '100vw', height: '100vh' }}>
       <ReactFlow
         nodes={nodes}
@@ -40,6 +82,7 @@ export default function Graph(){
         onConnect={onConnect}
         fitView
       />
+    </div>
     </div>
   );
 }
