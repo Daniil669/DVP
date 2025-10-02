@@ -4,8 +4,7 @@ from typing import List, Dict
 
 class SampleData:
     def __init__(self):
-        # start empty; everything is populated by uploads or loader
-        self._data: List[Dict] = []
+        self._data: List[Dict] = []  # start empty; CSV loader populates
 
     def get(self) -> List[Dict]:
         return self._data
@@ -30,17 +29,9 @@ class SampleData:
             "is_empty": len(self._data) == 0,
         }
 
-# ---- module-level singleton + helpers (keep imports simple in routes/utils) ----
 _store = SampleData()
 
-def get_sample_data():
-    return _store.get()
-
-def add_relationship(parent: str, child: str, sequence: int, level: int):
-    return _store.add(parent, child, sequence, level)
-
-def clear_data():
-    _store.clear()
-
-def get_data_info():
-    return _store.info()
+def get_sample_data(): return _store.get()
+def add_relationship(parent: str, child: str, sequence: int, level: int): return _store.add(parent, child, sequence, level)
+def clear_data(): _store.clear()
+def get_data_info(): return _store.info()

@@ -1,14 +1,20 @@
+# server/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes.root_node import router as get_root
 from routes.child_node import router as get_child
-# from routes.tree_full import router as get_tree
-# from routes.upload_file import router as get_file
+from routes.sources import router as sources
+
+# DB init
+from sqlalchemy.ext.asyncio import AsyncEngine
+from db.context import get_engine as get_graph_engine
+from db.models import Base as GraphBase
+from registry.session import registry_engine
+from registry.models import Base as RegistryBase
 
 app = FastAPI()
 
-# allowing everything for dev environment
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,10 +23,19 @@ app.add_middleware(
     allow_methods=["*"]
 )
 
-app.include_router(get_root, prefix='/api')
-# app.include_router(get_tree, prefix='/api')
+app.include_router(get_root,  prefix='/api')
 app.include_router(get_child, prefix='/api')
-# app.include_router(get_file, prefix='/api')
+app.include_router(sources,   prefix='/api')
+
+@app.on_event("startup")
+async def on_startup():
+    # create tables for both databases
+    graph_engine: AsyncEngine = get_graph_engine()
+    async with graph_engine.begin() as conn:
+        await conn.run_sync(GraphBase.metadata.create_all)
+
+    async with registry_engine.begin() as conn:
+        await conn.run_sync(RegistryBase.metadata.create_all)
 
 if __name__ == "__main__":
     import uvicorn
