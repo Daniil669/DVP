@@ -1,11 +1,10 @@
-# FastAPI Server – README (Updated)
+# FastAPI Server – README (Multi‑User, Dataset‑Scoped API)
 
-This backend accepts a CSV of parent–child relationships **or** serves data from a database connection. It lets you:
+This backend ingests CSVs **into a database as datasets** and serves queries **per request** based on:
+- **DB connection** (`connection_id`), and
+- **Dataset** (`dataset_id`) within that DB.
 
-- Upload/choose a **CSV** stored on the server and query root/children.
-- Register and activate **database** connections (SQLite by default; Postgres supported later).
-- List available sources (CSVs + DB connections) and **switch** the active source.
-- Query **root node(s)** and **children** from the active source.
+There is **no global “active source.”** Multiple users can concurrently query different datasets and DBs.
 
 ---
 
@@ -32,105 +31,86 @@ pip install -r requirements.txt
 ```
 
 Environment variables (optional):
-- `DATABASE_URL`: graph DB URL (default: `sqlite+aiosqlite:///./data/app.db`)
-- `REGISTRY_DATABASE_URL`: registry DB URL (default: `sqlite+aiosqlite:///./data/registry.db`)
-- `SQL_ECHO=1`: SQLAlchemy echo logs
+- `DATABASE_URL` — default local graph DB URL (used to bootstrap tables)
+  - default: `sqlite+aiosqlite:///./data/app.db`
+- `REGISTRY_DATABASE_URL` — registry DB URL (stores DB connections)
+  - default: `sqlite+aiosqlite:///./data/registry.db`
+- `SQL_ECHO=1` — enable SQLAlchemy echo logs
 
 ---
 
 ## 2) Run the server locally
 
-From the `server/` directory:
+From `server/`:
 
 ```bash
+in our case: python main.py
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 - Swagger UI: `http://localhost:8000/docs`
-- CSV uploads and stored CSVs are placed in `server/data/` (auto-created).
-- On startup, tables for both the **graph DB** and **registry DB** are created automatically.
+- CSV files placed or uploaded are saved under `server/data/`.
+- On startup (via **lifespan** handler), tables for **registry DB** and default **graph DB** are created.
 
 **CSV format (required headers):**
 ```
 parent_item,child_item,sequence_no,level
 ```
-- Delimiter: **auto-detected** (`;` or `,` both work)
-- Headers are case-insensitive; BOM/whitespace are handled
+- Delimiter auto-detected (`;` or `,`)
+- Header case/whitespace/BOM normalized
 
 ---
 
-## 3) Sources model
+## 3) Architecture (quick)
 
-This server can serve data from **one active source** at a time:
-
-- **CSV source**: in-memory dataset loaded from a CSV file under `server/data/*.csv`
-- **DB source**: dataset available through the configured graph database connection
-
-A separate **registry database** stores:
-- Known DB connections (name, URL, optional API key)
-- The **active source** (e.g., `csv:myfile.csv` or `db:3`)
-
-You can switch the active source with `/api/sources/select` (see below).
+- **Registry DB**: stores known DB connections (`/api/db/register`, `/api/sources`).
+- **Graph DB (per connection)**: stores ingested datasets:
+  - `upload_file` (one row per dataset / CSV import)
+  - `relationship` (edges: `parent_item`, `child_item`, `sequence_no`, `level`)
+- **No in-memory global state**. Each request specifies `connection_id` and `dataset_id`.
 
 ---
 
-## 4) Endpoints
+## 4) Endpoints (Base prefix: `/api`)
 
-Base prefix: **`/api`**
+### 4.1 List CSVs, DB connections, and datasets (optional)
+`GET /api/sources?connection_id=<id>`
 
-### 4.1 List available sources
-`GET /api/sources`
+- Always returns CSV files present under `server/data/` and **all** registered DB connections.
+- If `connection_id` is provided, also returns **datasets** already imported into that connection’s DB.
 
-Response example:
+**Response example**
 ```json
 {
   "csv_files": [
-    { "name": "where_used_sample_100_lines_student_version.csv", "size": 12345, "modified_at": 1727820000 }
+    { "name": "where_used_sample_100_lines_student_version.csv", "size": 26543, "modified_at": 1727820000 }
   ],
   "db_connections": [
-    { "id": 1, "name": "local-sqlite", "url": "sqlite+aiosqlite:///./data/app.db", "is_active": true, "has_api_key": true }
+    { "id": 1, "name": "local-sqlite", "url": "sqlite+aiosqlite:///./data/app.db", "created_at": "2025-10-02T08:00:00+00:00", "last_used_at": null, "has_api_key": true }
   ],
-  "active": { "type": "csv", "value": "where_used_sample_100_lines_student_version.csv" }
+  "datasets": [
+    { "dataset_id": 3, "original_name": "where_used_sample_100_lines_student_version.csv", "saved_path": "/abs/path/.../data/where_used_sample_100_lines_student_version.csv", "sha256": "78eeaa...", "rows_loaded": 107, "created_at": "2025-10-02T08:10:00+00:00" }
+  ]
 }
+```
+
+**cURL**
+```bash
+# just list sources (CSVs + all DB connections)
+curl "http://localhost:8000/api/sources"
+
+# list sources AND datasets that exist in connection 1
+curl "http://localhost:8000/api/sources?connection_id=1"
 ```
 
 ---
 
-### 4.2 Select active source (CSV or DB)
-`POST /api/sources/select`
-
-**Select a CSV stored on the server:**
-```http
-POST /api/sources/select
-Content-Type: application/json
-
-{
-  "type": "csv",
-  "filename": "where_used_sample_100_lines_student_version.csv"
-}
-```
-- Loads the CSV into memory and sets it as the active source.
-
-**Select a previously registered DB connection:**
-```http
-POST /api/sources/select
-x-api-key: secret123
-Content-Type: application/json
-
-{
-  "type": "db",
-  "connection_id": 1
-}
-```
-- Switches the graph DB context to this connection.
-- If the connection has an `api_key`, you must pass it via `x-api-key` header (simple auth; can be hardened later).
-
----
-
-### 4.3 Register a DB connection
+### 4.2 Register a DB connection
 `POST /api/db/register`
 
-Body:
+Registers a DB connection in the **registry DB** (for later use by `connection_id`). Optionally set a simple API key for selection/queries.
+
+**Request**
 ```json
 {
   "name": "local-sqlite",
@@ -138,50 +118,88 @@ Body:
   "api_key": "secret123"
 }
 ```
-- Stores the connection in the registry DB (not active by default).
+
+**Response**
+```json
+{ "message": "db connection registered", "connection_id": 1 }
+```
+
+**cURL**
+```bash
+curl -X POST "http://localhost:8000/api/db/register" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"local-sqlite","url":"sqlite+aiosqlite:///./data/app.db","api_key":"secret123"}'
+```
 
 ---
 
-### 4.4 Upload CSV & compute roots (optional upload)
-`POST /api/root_node`
+### 4.3 Import a server CSV into a DB as a dataset
+`POST /api/sources/import_csv`
 
-- If you include a file, it will be validated, saved (idempotent name), loaded, and set as active CSV.
-- If you don’t include a file, the endpoint serves the current **active source** (CSV or DB).
+Takes a CSV **already present** in `server/data/` and **ingests it into the chosen DB** (`connection_id`) as a **dataset** in SQL. Deduped by file **SHA‑256**.
 
-**With file (multipart/form-data):**
-```bash
-curl -X POST "http://localhost:8000/api/root_node" \
-  -H "accept: application/json" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@where_used_sample_100_lines_student_version.csv"
-```
-**Without file (use current active source):**
-```bash
-curl -X POST "http://localhost:8000/api/root_node" -H "accept: application/json"
-```
+**Headers (if set on connection):**
+- `x-api-key: <your-connection-api-key>`
 
-Sample response:
+**Request**
 ```json
 {
-  "message": "Root node(s) computed (CSV)",
-  "root_nodes": ["MAT000001", "MAT000002"],
-  "count": 2
+  "connection_id": 1,
+  "filename": "where_used_sample_100_lines_student_version.csv"
 }
 ```
 
+**Response (new dataset)**
+```json
+{ "message": "dataset imported", "dataset_id": 5, "sha256": "78eeaa...", "rows": 107 }
+```
+**Response (already imported)**
+```json
+{ "message": "dataset already exists", "dataset_id": 5, "sha256": "78eeaa...", "rows": 107 }
+```
+
+**cURL**
+```bash
+curl -X POST "http://localhost:8000/api/sources/import_csv" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: secret123" \
+  -d '{"connection_id":1,"filename":"where_used_sample_100_lines_student_version.csv"}'
+```
+
+> Tip: to upload a new CSV file to the server, place it under `server/data/` (e.g., via scp/docker bind).
+
 ---
 
-### 4.5 Read-only roots
-`GET /api/root_node`
+### 4.4 Query root nodes (dataset-scoped)
+`GET /api/root_node?connection_id=<id>&dataset_id=<id>`
 
-Returns roots from the **active source** (CSV or DB); no upload required.
+Returns the **root nodes** (parents that never appear as children) for that dataset.
+
+**Headers (if set on connection):**
+- `x-api-key: <your-connection-api-key>`
+
+**Response example**
+```json
+{ "message": "roots", "root_nodes": ["MAT000001", "MAT000002"], "count": 2 }
+```
+
+**cURL**
+```bash
+curl "http://localhost:8000/api/root_node?connection_id=1&dataset_id=5" \
+  -H "x-api-key: secret123"
+```
 
 ---
 
-### 4.6 Children of a node (from active source)
-`GET /api/child_node?node_id=MAT000001&limit=3`
+### 4.5 Query children (dataset-scoped)
+`GET /api/child_node?connection_id=<id>&dataset_id=<id>&node_id=<id>&limit=<n>`
 
-Response example:
+Returns the parent (if exists) and the ordered children of `node_id` for that dataset.
+
+**Headers (if set on connection):**
+- `x-api-key: <your-connection-api-key>`
+
+**Response example**
 ```json
 {
   "search_id": "MAT000001",
@@ -195,4 +213,18 @@ Response example:
 }
 ```
 
+**cURL**
+```bash
+curl "http://localhost:8000/api/child_node?connection_id=1&dataset_id=5&node_id=MAT000001&limit=3" \
+  -H "x-api-key: secret123"
+```
+
 ---
+
+## 5) Notes
+
+- This API is now **stateless** and **multi-user ready**; clients must pass `connection_id` and `dataset_id` on each query.
+- `server/data/` is a staging area for CSV files; use `/api/sources/import_csv` to ingest into SQL as datasets.
+- SQLite works for dev; for heavy concurrency, register a Postgres connection.
+- If a connection was created with an `api_key`, pass it via `x-api-key` for protected endpoints.
+- Tables are created automatically on startup via the **lifespan** handler in `main.py`.
