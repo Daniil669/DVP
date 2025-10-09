@@ -1,7 +1,7 @@
 import Button from '@mui/material/Button';
 import axios from 'axios';
 import TextField from '@mui/material/TextField';
-import { use, useState, type ChangeEvent } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { useNavigate } from "react-router";
 
@@ -22,7 +22,7 @@ export default function Homepage() {
     axios.post('http://localhost:8000/api/root_node', form)
       .then(res => {
         console.log("Upload success", res)
-        navigate("/graph")
+        navigate("/graph", { state: { data: res.data.root_nodes } });
       })
       .catch(err => console.error("Upload failed", err));
   };
