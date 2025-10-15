@@ -1,7 +1,7 @@
 # server/storage/sql_repository.py
 from __future__ import annotations
-from typing import Iterable, Optional
-from sqlalchemy import select, func
+from typing import Iterable, Optional, List, Dict
+from sqlalchemy import select, func, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import UploadFile, Relationship
 
@@ -11,47 +11,51 @@ class SqlGraphRepository:
 
     async def list_datasets(self) -> list[dict]:
         res = await self._db.execute(select(UploadFile).order_by(UploadFile.created_at.desc()))
-        out = []
-        for ds in res.scalars():
-            out.append({
+        return [
+            {
                 "dataset_id": ds.id,
                 "original_name": ds.original_name,
                 "saved_path": ds.saved_path,
                 "sha256": ds.sha256,
                 "rows_loaded": ds.rows_loaded,
-                "created_at": str(ds.created_at) if ds.created_at else None
-            })
-        return out
+                "created_at": str(ds.created_at) if ds.created_at else None,
+            }
+            for ds in res.scalars()
+        ]
 
     async def get_dataset_id_by_sha(self, sha256: str) -> Optional[int]:
         res = await self._db.execute(select(UploadFile.id).where(UploadFile.sha256 == sha256).limit(1))
         return res.scalar_one_or_none()
 
-    async def insert_dataset(self, original_name: str, saved_path: str, sha256: str, rows: Iterable[dict]) -> int:
-        # Explicitly set is_active=False for compatibility with older schemas that enforce NOT NULL
+    async def insert_dataset(self, original_name: str, saved_path: str, sha256: str, rows: List[Dict]) -> int:
+        # Create dataset row
         ds = UploadFile(
             original_name=original_name,
             saved_path=saved_path,
             sha256=sha256,
             rows_loaded=0,
-            is_active=False,  # <-- add this
+            is_active=False,  # keep old schemas happy
         )
         self._db.add(ds)
-        await self._db.flush()  # obtain ds.id
+        await self._db.flush()  # get ds.id
 
-        rels = [
-            Relationship(
-                dataset_id=ds.id,
-                parent_item=row["parent_item"],
-                child_item=row["child_item"],
-                sequence_no=row["sequence_no"],
-                level=row["level"],
-            )
-            for row in rows
+        # Prepare relationship payload for executemany
+        payload = [
+            {
+                "dataset_id": ds.id,
+                "parent_item": r["parent_item"],
+                "child_item":  r["child_item"],
+                "sequence_no": r["sequence_no"],
+                "level":       r["level"],
+            }
+            for r in rows
         ]
-        self._db.add_all(rels)
-        ds.rows_loaded = len(rels)
 
+        if payload:
+            stmt = insert(Relationship)
+            await self._db.execute(stmt, payload)
+
+        ds.rows_loaded = len(payload)
         await self._db.commit()
         return ds.id
 
