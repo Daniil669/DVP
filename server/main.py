@@ -12,6 +12,8 @@ from registry.session import registry_engine
 from routes.root_node import router as root_router
 from routes.child_node import router as child_router
 from routes.sources import router as sources_router
+from routes.upload_csv import router as upload_router
+
 
 import os
 
@@ -55,6 +57,7 @@ app.add_middleware(
 app.include_router(sources_router, prefix="/api")
 app.include_router(root_router,    prefix="/api")
 app.include_router(child_router,   prefix="/api")
+app.include_router(upload_router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
