@@ -92,4 +92,28 @@ class SqlGraphRepository:
         row = res.first()
         if not row:
             return None
-        return {"id": row.parent_item, "name": row.parent_item, "sequence_no": row.sequence_no, "level": row.level}
+        
+        parent_id = row.parent_item
+        q2 = (
+            select(Relationship.sequence_no, Relationship.level)
+            .where((Relationship.dataset_id == dataset_id) & (Relationship.child_item == parent_id))
+            .limit(1)
+        )
+        res2 = await self._db.execute(q2)
+        parent_data = res2.first()
+        
+        if parent_data:
+            return {
+                "id": parent_id,
+                "name": parent_id,
+                "sequence_no": parent_data.sequence_no,
+                "level": parent_data.level
+            }
+        else:
+            # If parent has no parent (it's a root), return with default values
+            return{
+                "id": parent_id,
+                "name": parent_id,
+                "sequence_no": 0,  # or whatever default you prefer for roots
+                "level": 0
+            }
