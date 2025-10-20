@@ -42,28 +42,22 @@ def _parse_csv_text(text: str) -> pd.DataFrame:
     df.columns = _normalize_cols(df.columns)
     
     # Check for new format columns
-    new_format = ["eng_id", "child_item_id", "path", "chain_sort", "sequenceno"]
+    new_format = ["system_id", "parent_item_id", "child_item_id", "bom_level", "sequenceno", "path"]
     old_format = ["parent_item", "child_item", "sequence_no", "level"]
     
     has_new = all(c in df.columns for c in new_format)
     has_old = all(c in df.columns for c in old_format)
     
-    if has_new:
-        # Drop rows with missing critical values (only path needed now)
-        df = df.dropna(subset=['path', 'chain_sort', 'sequenceno'])
-        
-        # Keep the original path column for processing
-        df['path'] = df['path'].astype(str)
-        df['chain_sort'] = pd.to_numeric(df['chain_sort'], errors='coerce').fillna(1).astype(int)
-        df['sequenceno'] = pd.to_numeric(df['sequenceno'], errors='coerce').fillna(0).astype(int)
-        
-    elif not has_old:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing required columns. Expected either {old_format} or {new_format}. Found: {list(df.columns)}"
-        )
-    
-    return df
+    if set(old_format).issubset(df.columns):
+        return df
+    elif set(new_format).issubset(df.columns):
+        # Import the conversion function from upload_csv
+        from utils.upload_csv import _convert_new_to_old
+        return _convert_new_to_old(df)
+    else:
+        missing_old = [c for c in old_format if c not in df.columns]
+        missing_new = [c for c in new_format if c not in df.columns]
+        raise HTTPException(status_code=400, detail=f"Missing required columns. Either need: {old_format} OR {new_format}. Found: {list(df.columns)}")
 
 def load_csv_file(path: Path) -> int:
     if not path.exists():
