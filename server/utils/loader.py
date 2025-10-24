@@ -42,7 +42,7 @@ def _parse_csv_text(text: str) -> pd.DataFrame:
     df.columns = _normalize_cols(df.columns)
     
     # Check for new format columns
-    new_format = ["system_id", "parent_item_id", "child_item_id", "bom_level", "sequenceno", "path"]
+    new_format = ["engine_id","system_id", "parent_item_id", "child_item_id", "bom_level", "sequenceno", "path"]
     old_format = ["parent_item", "child_item", "sequence_no", "level"]
     
     has_new = all(c in df.columns for c in new_format)
@@ -66,49 +66,73 @@ def load_csv_file(path: Path) -> int:
     df = _parse_csv_text(text)
     clear_data()
 
-    added_relationships = {}  # Track: (parent, child) -> (sequence, level)
+    relationships = {}  # (parent, child) -> (sequence, level)
     
-    for _, row in df.iterrows():
-        # If this row has a 'path' column (new format), extract all relationships from path
-        if 'path' in row.index and pd.notna(row['path']):
-            path_str = str(row['path'])
-            parts = [p.strip() for p in path_str.split('->') if p.strip()]
+    for idx, row in df.iterrows():
+        # Handle both old and new formats
+        if 'engine_id' in row.index:  # New format
+            engine_id = str(row.get("engine_id", "")).strip()
+            system_id = str(row.get("system_id", "")).strip()
+            path_str = str(row.get("path", "")).strip()
+            parent_item_id = str(row.get("parent_item_id", "")).strip()
+            child_item_id = str(row.get("child_item_id", "")).strip()
+            bom_level = pd.to_numeric(row.get("bom_level"), errors="coerce")
+            sequenceno = pd.to_numeric(row.get("sequenceno"), errors="coerce")
             
-            if not parts:
-                continue
+            if pd.isna(bom_level):
+                bom_level = 0
+            if pd.isna(sequenceno):
+                sequenceno = 0
+                
+            bom_level = int(bom_level)
+            sequenceno = int(sequenceno)
             
-            # Extract relationships from consecutive pairs in path
-            for i in range(len(parts) - 1):
-                parent = parts[i]
-                child = parts[i + 1]
-                rel_key = (parent, child)
+            # 1. Add ENGINE_ID -> SYSTEM_ID relationship (level 1)
+            if engine_id and system_id:
+                rel_key = (engine_id, system_id)
+                if rel_key not in relationships:
+                    relationships[rel_key] = (0, 0)  # Level 1, sequence 0 (implicit)
+            
+            # 2. Add explicit parent-child relationship from row
+            if parent_item_id and child_item_id:
+                rel_key = (parent_item_id, child_item_id)
+                # Keep the one with highest sequence number (most specific)
+                if rel_key not in relationships or sequenceno > relationships[rel_key][0]:
+                    relationships[rel_key] = (sequenceno, bom_level+1)
+            
+            # 3. Extract intermediate relationships from path
+            if path_str:
+                # Normalize path: remove leading arrows
+                import re
+                path_str = re.sub(r"^-+>", "", path_str)
+                parts = [p.strip() for p in path_str.split("->") if p.strip()]
                 
-                # For the LAST pair in the path, use actual chain_sort and sequenceno
-                if i == len(parts) - 2:  # Last pair
-                    level = int(row.get('chain_sort', i + 1))
-                    sequence = int(row.get('sequenceno', 0))
-                else:
-                    # For intermediate pairs, use default values or better ones if already stored
-                    level = i + 1
-                    sequence = 0
-                
-                # Only add if not exists, or update if this has better info (non-zero sequence)
-                if rel_key not in added_relationships or (sequence > 0 and added_relationships[rel_key][0] == 0):
-                    added_relationships[rel_key] = (sequence, level)
+                if len(parts) > 1:
+                    # Create relationships for each consecutive pair in the path
+                    for i in range(len(parts) - 1):
+                        parent = parts[i]
+                        child = parts[i + 1]
+                        rel_key = (parent, child)
+                        
+                        # Calculate level: first part (SYSTEM_ID) is level 1
+                        level = i + 2
+                        
+                        # For intermediate nodes, use sequence 0 unless we already have data
+                        if rel_key not in relationships:
+                            relationships[rel_key] = (0, level)
         
-        # Old format: use parent_item and child_item directly
-        elif 'parent_item' in row.index and 'child_item' in row.index:
+        else:  # Old format
             parent = str(row["parent_item"])
             child = str(row["child_item"])
             rel_key = (parent, child)
             sequence = int(row.get("sequence_no", 0))
             level = int(row.get("level", 1))
             
-            if rel_key not in added_relationships:
-                added_relationships[rel_key] = (sequence, level)
+            if rel_key not in relationships:
+                relationships[rel_key] = (sequence, level)
     
     # Add all relationships to store
-    for (parent, child), (sequence, level) in added_relationships.items():
+    for (parent, child), (sequence, level) in relationships.items():
         add_relationship(
             parent=parent,
             child=child,

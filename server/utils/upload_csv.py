@@ -25,7 +25,7 @@ def _parse_csv_text(text: str) -> pd.DataFrame:
     df = pd.read_csv(io.StringIO(text), sep=None, engine="python")
     df.columns = _normalize_cols(df.columns)
     
-    new_format = ["system_id", "parent_item_id", "child_item_id", "bom_level", "sequenceno", "path"]
+    new_format = ["engine_id","system_id", "parent_item_id", "child_item_id", "bom_level", "sequenceno", "path"]
     old_format = ["parent_item", "child_item", "sequence_no", "level"]
     
     if set(old_format).issubset(df.columns):
@@ -41,80 +41,143 @@ def _parse_csv_text(text: str) -> pd.DataFrame:
         )
 
 def _convert_new_to_old(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert new format to old format - direct mapping"""
-    old_df = pd.DataFrame({
-        "parent_item": df["parent_item_id"].astype(str).str.strip(),
-        "child_item": df["child_item_id"].astype(str).str.strip(),
-        "sequence_no": pd.to_numeric(df["sequenceno"], errors="coerce").fillna(0).astype(int),
-        "level": pd.to_numeric(df["bom_level"], errors="coerce").fillna(0).astype(int),
-    })
+    relationships = {}  # (parent, child) -> (sequence, level)
     
-    return old_df
+    for idx, row in df.iterrows():
+        engine_id = str(row.get("engine_id", "")).strip()
+        system_id = str(row.get("system_id", "")).strip()
+        path_str = str(row.get("path", "")).strip()
+        parent_item_id = str(row.get("parent_item_id", "")).strip()
+        child_item_id = str(row.get("child_item_id", "")).strip()
+        bom_level = pd.to_numeric(row.get("bom_level"), errors="coerce")
+        sequenceno = pd.to_numeric(row.get("sequenceno"), errors="coerce")
+        
+        if pd.isna(bom_level):
+            bom_level = 0
+        if pd.isna(sequenceno):
+            sequenceno = 0
+            
+        bom_level = int(bom_level)
+        sequenceno = int(sequenceno)
+        
+        # 1. Add ENGINE_ID -> SYSTEM_ID relationship (level 1)
+        if engine_id and system_id:
+            rel_key = (engine_id, system_id)
+            if rel_key not in relationships:
+                relationships[rel_key] = (0, 0)  # Level 1, sequence 0 (implicit)
+        
+        # 2. Add explicit parent-child relationship from row
+        if parent_item_id and child_item_id:
+            rel_key = (parent_item_id, child_item_id)
+            # Keep the one with highest sequence number (most specific)
+            if rel_key not in relationships or sequenceno > relationships[rel_key][0]:
+                relationships[rel_key] = (sequenceno, bom_level+1)
+        
+        # 3. Extract intermediate relationships from path
+        if path_str:
+            # Normalize path: remove leading arrows
+            import re
+            path_str = re.sub(r"^-+>", "", path_str)
+            parts = [p.strip() for p in path_str.split("->") if p.strip()]
+            
+            if len(parts) > 1:
+                # Create relationships for each consecutive pair in the path
+                for i in range(len(parts) - 1):
+                    parent = parts[i]
+                    child = parts[i + 1]
+                    rel_key = (parent, child)
+                    
+                    # Calculate level: first part (SYSTEM_ID) is level 1
+                    level = i + 2
+                    
+                    # For intermediate nodes, use sequence 0 unless we already have data
+                    if rel_key not in relationships:
+                        relationships[rel_key] = (0, level)
+    
+    # Convert to DataFrame
+    rows = []
+    for (parent, child), (sequence, level) in relationships.items():
+        rows.append({
+            "parent_item": parent,
+            "child_item": child,
+            "sequence_no": sequence,
+            "level": level,
+        })
+    
+    if not rows:
+        return pd.DataFrame(columns=["parent_item", "child_item", "sequence_no", "level"])
+    
+    out = pd.DataFrame(rows)
+    # Sort but keep all instances (don't drop duplicates at different levels)
+    out.sort_values(["parent_item", "child_item", "level", "sequence_no"], inplace=True, kind="stable")
+    # Only drop exact duplicates (same parent, child, AND level)
+    out = out.drop_duplicates(subset=["parent_item", "child_item", "level"], keep="last").reset_index(drop=True)
+    return out
 
 def _load_df_into_store(df: pd.DataFrame) -> int:
     clear_data()
-    added_relationships = {}  # Track: (parent, child) -> (sequence, level)
+    relationships = {}  # (parent, child) -> (sequence, level)
     
-    for _, row in df.iterrows():
-        # If this row has a 'path' column (new format), extract all relationships from path
-        if 'path' in row.index and pd.notna(row['path']):
-            path_str = str(row['path'])
-            parts = [p.strip() for p in path_str.split('->') if p.strip()]
-            child_item_id = str(row.get('child_item_id', '')).strip()
-            
-            if not parts:
-                continue
-            
-            # Extract relationships from consecutive pairs in path
-            for i in range(len(parts) - 1):
-                parent = parts[i]
-                child = parts[i + 1]
-                rel_key = (parent, child)
-                
-                # For the LAST pair in the path, use actual chain_sort and sequenceno
-                if i == len(parts) - 2:  # Last pair
-                    level = int(row.get('chain_sort', i + 1))
-                    sequence = int(row.get('sequenceno', 0))
-                else:
-                    # For intermediate pairs, use default values
-                    level = i + 1
-                    sequence = 0
-                
-                # Only add if not exists, or update if this has better info (non-zero sequence)
-                if rel_key not in added_relationships or (sequence > 0 and added_relationships[rel_key][0] == 0):
-                    added_relationships[rel_key] = (sequence, level)
-            
-            # ========== ADDED: Handle child_item_id if different from last node ==========
-            # If child_item_id exists and is different from the last node in path, add that relationship
-            if child_item_id and parts and parts[-1] != child_item_id:
-                parent = parts[-1]
-                child = child_item_id
-                rel_key = (parent, child)
-                level = int(row.get('chain_sort', len(parts))) + 1  # One level deeper
-                sequence = int(row.get('sequenceno', 0))
-                
-                if rel_key not in added_relationships or (sequence > 0 and added_relationships[rel_key][0] == 0):
-                    added_relationships[rel_key] = (sequence, level)
+    for idx, row in df.iterrows():
+        engine_id = str(row.get("engine_id", "")).strip()
+        system_id = str(row.get("system_id", "")).strip()
+        path_str = str(row.get("path", "")).strip()
+        parent_item_id = str(row.get("parent_item_id", "")).strip()
+        child_item_id = str(row.get("child_item_id", "")).strip()
+        bom_level = pd.to_numeric(row.get("bom_level"), errors="coerce")
+        sequenceno = pd.to_numeric(row.get("sequenceno"), errors="coerce")
         
-        # Old format: use parent_item and child_item directly
-        elif 'parent_item' in row.index and 'child_item' in row.index:
-            parent = str(row["parent_item"])
-            child = str(row["child_item"])
-            rel_key = (parent, child)
-            sequence = int(row.get("sequence_no", 0))
-            level = int(row.get("level", 1))
+        if pd.isna(bom_level):
+            bom_level = 0
+        if pd.isna(sequenceno):
+            sequenceno = 0
             
-            if rel_key not in added_relationships:
-                added_relationships[rel_key] = (sequence, level)
+        bom_level = int(bom_level)
+        sequenceno = int(sequenceno)
+        
+        # 1. Add ENGINE_ID -> SYSTEM_ID relationship (level 1)
+        if engine_id and system_id:
+            rel_key = (engine_id, system_id)
+            if rel_key not in relationships:
+                relationships[rel_key] = (0, 0)  # Level 1, sequence 0 (implicit)
+        
+        # 2. Add explicit parent-child relationship from row
+        if parent_item_id and child_item_id:
+            rel_key = (parent_item_id, child_item_id)
+            # Keep the one with highest sequence number (most specific)
+            if rel_key not in relationships or sequenceno > relationships[rel_key][0]:
+                relationships[rel_key] = (sequenceno, bom_level)
+        
+        # 3. Extract intermediate relationships from path
+        if path_str:
+            # Normalize path: remove leading arrows
+            import re
+            path_str = re.sub(r"^-+>", "", path_str)
+            parts = [p.strip() for p in path_str.split("->") if p.strip()]
+            
+            if len(parts) > 1:
+                # Create relationships for each consecutive pair in the path
+                for i in range(len(parts) - 1):
+                    parent = parts[i]
+                    child = parts[i + 1]
+                    rel_key = (parent, child)
+                    
+                    # Calculate level: first part (SYSTEM_ID) is level 1
+                    level = i + 1
+                    
+                    # For intermediate nodes, use sequence 0 unless we already have data
+                    if rel_key not in relationships:
+                        relationships[rel_key] = (0, level)
     
     # Add all relationships to store
-    for (parent, child), (sequence, level) in added_relationships.items():
+    for (parent, child), (sequence, level) in relationships.items():
         add_relationship(
             parent=parent,
             child=child,
             sequence=sequence,
             level=level,
         )
+    
     return len(get_sample_data())
 
 # ---- main API ----

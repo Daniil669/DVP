@@ -34,15 +34,76 @@ def _parse_old_schema(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 def _parse_new_schema(df: pd.DataFrame) -> pd.DataFrame:
-    out = pd.DataFrame({
-        "parent_item": df["parent_item_id"].astype(str).str.strip(),
-        "child_item":  df["child_item_id"].astype(str).str.strip(),
-        "sequence_no": pd.to_numeric(df["sequenceno"], errors="coerce").fillna(0).astype(int),
-        "level":       pd.to_numeric(df["bom_level"], errors="coerce").fillna(0).astype(int),
-    })
-
-    out.sort_values(["parent_item","child_item","level","sequence_no"], inplace=True, kind="stable")
-    out = out.drop_duplicates(subset=["parent_item","child_item","level"], keep="first").reset_index(drop=True)
+    relationships = {}  # (parent, child) -> (sequence, level)
+    
+    for idx, row in df.iterrows():
+        engine_id = str(row.get("engine_id", "")).strip()
+        system_id = str(row.get("system_id", "")).strip()
+        path_str = str(row.get("path", "")).strip()
+        parent_item_id = str(row.get("parent_item_id", "")).strip()
+        child_item_id = str(row.get("child_item_id", "")).strip()
+        bom_level = pd.to_numeric(row.get("bom_level"), errors="coerce")
+        sequenceno = pd.to_numeric(row.get("sequenceno"), errors="coerce")
+        
+        if pd.isna(bom_level):
+            bom_level = 0
+        if pd.isna(sequenceno):
+            sequenceno = 0
+            
+        bom_level = int(bom_level)
+        sequenceno = int(sequenceno)
+        
+        # 1. Add ENGINE_ID -> SYSTEM_ID relationship (level 1)
+        if engine_id and system_id:
+            rel_key = (engine_id, system_id)
+            if rel_key not in relationships:
+                relationships[rel_key] = (0, 0)  # Level 1, sequence 0 (implicit)
+        
+        # 2. Add explicit parent-child relationship from row
+        if parent_item_id and child_item_id:
+            rel_key = (parent_item_id, child_item_id)
+            # Keep the one with highest sequence number (most specific)
+            if rel_key not in relationships or sequenceno > relationships[rel_key][0]:
+                relationships[rel_key] = (sequenceno, bom_level+1)
+        
+        # 3. Extract intermediate relationships from path
+        if path_str:
+            # Normalize path: remove leading arrows
+            path_str = re.sub(r"^-+>", "", path_str)
+            parts = [p.strip() for p in path_str.split("->") if p.strip()]
+            
+            if len(parts) > 1:
+                # Create relationships for each consecutive pair in the path
+                for i in range(len(parts) - 1):
+                    parent = parts[i]
+                    child = parts[i + 1]
+                    rel_key = (parent, child)
+                    
+                    # Calculate level: first part (SYSTEM_ID) is level 1
+                    level = i+2
+                    
+                    # For intermediate nodes, use sequence 0 unless we already have data
+                    if rel_key not in relationships:
+                        relationships[rel_key] = (0, level)
+    
+    # Convert to DataFrame
+    rows = []
+    for (parent, child), (sequence, level) in relationships.items():
+        rows.append({
+            "parent_item": parent,
+            "child_item": child,
+            "sequence_no": sequence,
+            "level": level,
+        })
+    
+    if not rows:
+        return pd.DataFrame(columns=["parent_item", "child_item", "sequence_no", "level"])
+    
+    out = pd.DataFrame(rows)
+    # Sort but keep all instances (don't drop duplicates at different levels)
+    out.sort_values(["parent_item", "child_item", "level", "sequence_no"], inplace=True, kind="stable")
+    # Only drop exact duplicates (same parent, child, AND level)
+    out = out.drop_duplicates(subset=["parent_item", "child_item", "level"], keep="last").reset_index(drop=True)
     return out
 
 def parse_csv_text(
@@ -75,15 +136,15 @@ def parse_csv_text(
         meta["schema"] = "old"
         out = _parse_old_schema(df)
 
-    elif {"system_id","parent_item_id","child_item_id","bom_level","sequenceno","path"}.issubset(cols):
+    elif {"engine_id","system_id","parent_item_id","child_item_id","bom_level","sequenceno","path"}.issubset(cols):
         meta["schema"] = "new"
         if filter_eng_ids:
-            system_ids = sorted({str(x).strip() for x in filter_eng_ids if str(x).strip()})
-            if not system_ids:
-                raise HTTPException(status_code=400, detail="system_ids provided but empty after normalization")
-            df = df[df["system_id"].isin(system_ids)].copy()
+            eng_ids = sorted({str(x).strip() for x in filter_eng_ids if str(x).strip()})
+            if not eng_ids:
+                raise HTTPException(status_code=400, detail="eng_ids provided but empty after normalization")
+            df = df[df["engine_id"].isin(eng_ids)].copy()
             meta["filtered"] = True
-            meta["system_ids"] = system_ids
+            meta["eng_ids"] = eng_ids
         out = _parse_new_schema(df)
 
     else:
@@ -91,7 +152,8 @@ def parse_csv_text(
             status_code=400,
             detail=f"CSV headers not recognized. Expected either "
                    f"[parent_item, child_item, sequence_no, level] or "
-                   f"[system_id, parent_item_id, child_item_id, bom_level, sequenceno, path]. Found: {list(df.columns)}"
+                   f"[engine_id, system_id, parent_item_id, child_item_id, bom_level, sequenceno, path]. "
+                   f"Found: {list(df.columns)}"
         )
 
     meta["rows_out"] = int(out.shape[0])
