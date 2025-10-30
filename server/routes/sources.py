@@ -1,5 +1,6 @@
 # server/routes/sources.py
 from __future__ import annotations
+from registry.session import set_user_source, get_user_source
 from typing import Optional, Iterable, List
 from fastapi import APIRouter, Depends, Body, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,27 +16,47 @@ from utils.csv_import import DATA_DIR, read_server_csv
 router = APIRouter()
 
 @router.get("/sources")
-async def get_sources(reg: AsyncSession = Depends(get_registry_session), connection_id: Optional[int] = None):
+async def get_sources(reg: AsyncSession = Depends(get_registry_session)):
+    """
+    Return all available CSVs, DB connections, and datasets grouped by connection.
+    """
+    # List CSV files
     csvs = []
     for p in sorted(DATA_DIR.glob("*.csv"), key=lambda x: x.stat().st_mtime, reverse=True):
         st = p.stat()
         csvs.append({"name": p.name, "size": st.st_size, "modified_at": int(st.st_mtime)})
 
+    # List database connections
     conns = await list_connections(reg)
 
-    datasets = None
-    if connection_id is not None:
-        dbrow = await get_connection(reg, connection_id)
-        if not dbrow:
-            raise HTTPException(status_code=404, detail="connection not found")
-        engine = get_engine(dbrow.url)
+    # For each connection, get its datasets
+    all_datasets = []
+    for conn in conns:
+        engine = get_engine(conn["url"])
         Session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
         async with Session() as sess:
-            await sess.execute(text("SELECT 1"))
-            repo = SqlGraphRepository(sess)
-            datasets = await repo.list_datasets()
+            try:
+                repo = SqlGraphRepository(sess)
+                datasets = await repo.list_datasets()
+                all_datasets.append({
+                    "connection_id": conn["id"],
+                    "connection_name": conn["name"],
+                    "datasets": datasets,
+                })
+            except Exception as e:
+                all_datasets.append({
+                    "connection_id": conn["id"],
+                    "connection_name": conn["name"],
+                    "datasets": [],
+                    "error": str(e)
+                })
 
-    return {"csv_files": csvs, "db_connections": conns, "datasets": datasets}
+    return {
+        "csv_files": csvs,
+        "db_connections": conns,
+        "datasets_by_connection": all_datasets,
+    }
+
 
 @router.post("/db/register")
 async def register_db(
@@ -113,3 +134,57 @@ async def import_csv_to_db(
             "filtered": meta.get("filtered", False),
             "eng_ids": meta.get("eng_ids"),
         }
+
+
+@router.post("/sources/select")
+async def select_source(
+    payload: dict = Body(..., example={"user_id": "u123", "connection_id": 1, "dataset_id": 2}),
+    reg: AsyncSession = Depends(get_registry_session),
+):
+    """
+    Store user's active source selection (connection + dataset).
+    This enables multiple users to work independently with different data sources.
+    """
+    user_id = str(payload.get("user_id"))
+    connection_id = payload.get("connection_id")
+    dataset_id = payload.get("dataset_id")
+
+    if not user_id or not connection_id or not dataset_id:
+        raise HTTPException(status_code=400, detail="user_id, connection_id and dataset_id required")
+
+    # Validate that both exist
+    conn = await get_connection(reg, connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail=f"Connection {connection_id} not found")
+
+    engine = get_engine(conn.url)
+    Session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as sess:
+        repo = SqlGraphRepository(sess)
+        datasets = await repo.list_datasets()
+        if not any(ds["dataset_id"] == dataset_id for ds in datasets):
+            raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} not found in connection {connection_id}")
+
+    set_user_source(user_id, connection_id, dataset_id)
+    return {"message": "source selected", "user_id": user_id, "connection_id": connection_id, "dataset_id": dataset_id}
+
+
+@router.get("/sources/active")
+async def get_active_source(user_id: str, reg: AsyncSession = Depends(get_registry_session)):
+    """Return the currently active source (connection + dataset) for the given user."""
+    src = get_user_source(user_id)
+    if not src:
+        raise HTTPException(status_code=404, detail=f"No active source for user {user_id}")
+    return src
+
+@router.post("/sources/current")
+async def set_current_source(payload: dict = Body(...)):
+    """
+    Optional helper for the frontend to store the user's current source
+    (connection_id + dataset_id). No DB write, just a frontend state helper.
+    """
+    return {
+        "message": "source set",
+        "connection_id": payload.get("connection_id"),
+        "dataset_id": payload.get("dataset_id")
+    }
