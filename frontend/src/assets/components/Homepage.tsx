@@ -8,24 +8,38 @@ import { useNavigate } from "react-router";
 export default function Homepage() {
   const [file, setFile] = useState<File | null>(null);
   const navigate = useNavigate();
-  console.log(file);
 
-  const handleUpload = (file: File | null) => {
+
+const handleUpload = (file: File | null) => {
     if (!file) {
       alert("Please select a file first.");
       return;
     }
 
-    const form = new FormData();
-    form.append('selected_file', file);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("import_now", "true");           // all values must be strings
+    formData.append("connection_id", "1");
+    formData.append("eng_id", "");
+    formData.append("eng_ids", JSON.stringify([]));  // stringify array if backend expects JSON
 
-    axios.post('http://localhost:8000/api/root_node', form)
-      .then(res => {
-        console.log("Upload success", res)
-        navigate("/graph")
-      })
-      .catch(err => console.error("Upload failed", err));
-  };
+     for (const [key, value] of formData.entries()) {
+    console.log(`${key}:`, value);
+  }
+
+    axios.post("http://localhost:8000/api/upload_csv", formData, {
+      headers: {
+        "x-api-key": "secret123",
+        // no need to manually set Content-Type, axios handles multipart boundaries
+      },
+    })
+    .then(res => {
+      console.log("Upload success", res);
+      navigate("/graph");
+    })
+    .catch(err => console.error("Upload failed", err.response?.data || err));
+};
+
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
