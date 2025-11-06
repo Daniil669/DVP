@@ -1,10 +1,9 @@
-import './App.css'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
-import Homepage from './assets/components/Homepage'
-import Graph from './assets/components/Graph'
+import './App.css';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import Homepage from './assets/components/Homepage';
+import Graph from './assets/components/Graph';
 import 'bootstrap/dist/css/bootstrap.css';
-import "bootstrap";
-
+import 'bootstrap';
 
 function App() {
   return (
@@ -16,7 +15,7 @@ function App() {
         </Routes>
       </BrowserRouter>
     </>
-  )
+  );
 }
 
-export default App
+export default App;
