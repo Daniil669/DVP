@@ -17,6 +17,7 @@ import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import type { childNodeResponse } from '../responseTypes';
 import { TreeLayout } from '../core/TreeLayout';
+import CustomNode from './CustomNode';
 
 interface UsedFile {
   name: string;
@@ -26,6 +27,10 @@ interface UsedFile {
 
 const connection_id = 1;
 let treeLayout: TreeLayout;
+
+const nodeTypes = {
+  customNode: CustomNode
+};
 
 export default function Graph() {
   const location = useLocation();
@@ -83,7 +88,8 @@ export default function Graph() {
         return {
           id: child.id,
           name: child.name,
-          children: []
+          children: [],
+          hasChildren: child.has_children ?? false
         };
       });
       treeLayout.expandNode(node.id, childrenNodes);
@@ -138,6 +144,7 @@ export default function Graph() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={nodeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeClick={onNodeClick}

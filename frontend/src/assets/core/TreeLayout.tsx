@@ -27,21 +27,24 @@ export class TreeLayout {
     this.edges = [];
 
     this.root.descendants().forEach(d => {
-      this.nodes.push({
-        id: d.data.id,
-        data: { label: d.data.name },
-        position: { x: d.x, y: d.y },
-        style: { width: this.nodeWidth, height: this.nodeHeight },
-        type: 'default'
-      });
-
+      let hasChildren = true;
       if (d.parent) {
+        hasChildren = d.data.hasChildren ?? (d.children && d.children.length > 0);
         this.edges.push({
           id: `${d.parent.data.id}-${d.data.id}`,
           source: d.parent.data.id,
           target: d.data.id
         });
       }
+
+      const expanded = this.isExpanded(d.data.id);
+      this.nodes.push({
+        id: d.data.id,
+        data: { label: d.data.name, hasChildren, expanded },
+        position: { x: d.x, y: d.y },
+        style: { width: this.nodeWidth, height: this.nodeHeight },
+        type: 'customNode'
+      });
     });
     console.log(this.root);
   }
@@ -49,11 +52,11 @@ export class TreeLayout {
   public expandNode(nodeId: string, childData: any[]) {
     const target = this.root.descendants().find(d => d.data.id === nodeId);
     if (!target) return;
-    if (!target.data.children) {
-      target.data.children = [];
-    } else if (target.data.children.length > 0) return;
+    if (!target.data.children) target.data.children = [];
+    if (target.data.children.length > 0) return;
 
     target.data.children.push(...childData);
+
     this.root = d3.hierarchy(this.root.data);
     this.updateTree();
   }
