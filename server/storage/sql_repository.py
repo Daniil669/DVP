@@ -121,3 +121,52 @@ class SqlGraphRepository:
                 })
         
         return parents
+
+
+    async def find_path_to_child(self, dataset_id: int, child_id: str) -> dict:
+        # Fetch all parent-child relationships for the given dataset
+        q = select(Relationship.parent_item, Relationship.child_item).where(
+            Relationship.dataset_id == dataset_id
+        )
+        res = await self._db.execute(q)
+        rows = res.fetchall()
+
+        # Build parent map
+        parent_map = {child: parent for parent, child in rows}
+
+        # Handle case where child_id does not exist
+        if child_id not in parent_map and all(child_id != p for p, c in rows):
+            return {"path": []}
+
+        # Reconstruct path from child up to root
+        path = [child_id]
+        current = child_id
+        while current in parent_map:
+            parent = parent_map[current]
+            path.append(parent)
+            current = parent
+
+        path = list(reversed(path))
+
+        # Build structured path list
+        structured_path = []
+        for i in range(len(path)):
+            if i < len(path) - 1:
+                structured_path.append({
+                    "id": path[i],
+                    "child_id": path[i + 1],
+                    "child_name": path[i + 1]
+                })
+            else:
+                # Last node (no further child)
+                structured_path.append({
+                    "id": path[i],
+                    "child_id": "",
+                    "child_name": ""
+                })
+
+        return {"path": structured_path}
+
+
+
+
