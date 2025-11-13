@@ -77,10 +77,31 @@ class SqlGraphRepository:
         if limit:
             q = q.limit(limit)
         res = await self._db.execute(q)
-        return [
-            {"id": row.child_item, "name": row.child_item, "sequence_no": row.sequence_no, "level": row.level}
-            for row in res.fetchall()
-        ]
+        rows = res.fetchall()
+    
+        if not rows:
+            return []
+        
+        # Build result with has_children flag
+        result = []
+        for row in rows:
+            # Check if this child has children
+            check_q = select(func.count()).select_from(Relationship).where(
+                (Relationship.dataset_id == dataset_id) & 
+                (Relationship.parent_item == row.child_item)
+            )
+            count_res = await self._db.execute(check_q)
+            has_children = count_res.scalar() > 0
+            
+            result.append({
+                "id": row.child_item,
+                "name": row.child_item,
+                "sequence_no": row.sequence_no,
+                "level": row.level,
+                "has_children": has_children  # True if has children, False if not
+            })
+        
+        return result
 
     async def get_parent(self, dataset_id: int, node_id: str) -> Optional[dict]:
         q = (
