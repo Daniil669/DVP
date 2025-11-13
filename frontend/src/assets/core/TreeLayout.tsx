@@ -58,7 +58,20 @@ export class TreeLayout {
     this.updateTree();
   }
 
+  public collapseNode(nodeId: string) {
+    const target = this.root.descendants().find(d => d.data.id === nodeId);
+    if (!target) return;
+    target.data.children = [];
+    this.root = d3.hierarchy(this.root.data);
+    this.updateTree();
+  }
+
   public getTreeLayout(): [Node[], Edge[]] {
     return [this.nodes, this.edges];
+  }
+
+  public isExpanded(nodeId: string): boolean {
+    const target = this.root.descendants().find(d => d.data.id === nodeId);
+    return (target?.data.children?.length ?? 0) > 0;
   }
 }
