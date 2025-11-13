@@ -34,3 +34,31 @@ async def get_child_node(
         if not parent and not children:
             return {"error": f"Node {node_id} not found", "children": [], "count_children": 0}
         return {"search_id": node_id, "parent": parent, "children": children, "count_children": len(children)}
+    
+@router.get("/sources/children/path/{child_id}")
+async def get_child_path(
+    child_id: str,
+    connection_id: int,
+    dataset_id: int,
+    api_key: str | None = Header(default=None, alias="x-api-key"),
+    reg: AsyncSession = Depends(get_registry_session),
+):
+    """
+    Return the path from root to the specified child node.
+    """
+    dbrow = await get_connection(reg, connection_id)
+    if not dbrow:
+        raise HTTPException(status_code=404, detail="connection not found")
+
+    if dbrow.api_key and api_key != dbrow.api_key:
+        raise HTTPException(status_code=401, detail="invalid API key")
+
+    engine = get_engine(dbrow.url)
+    Session = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as sess:
+        repo = SqlGraphRepository(sess)
+        path = await repo.find_path_to_child(dataset_id, child_id)
+        if not path:
+            raise HTTPException(status_code=404, detail=f"Child node {child_id} not found.")
+        return {"path": path, "length": len(path)}
+
