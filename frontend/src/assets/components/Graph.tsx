@@ -74,21 +74,28 @@ export default function Graph() {
     (changes: EdgeChange<Edge>[]) => setEdges(edgesSnapshot => applyEdgeChanges(changes, edgesSnapshot)),
     []
   );
-  const onNodeClick = async (event: React.MouseEvent, node: Node) => {
-    const children: childNodeResponse | null = await getChildren(node.id, dataset_id);
-    if (!children) return;
-    const childrenNodes = children.children.map(child => {
-      return {
-        id: child.id,
-        name: child.name,
-        chilren: []
-      };
-    });
-    treeLayout.expandNode(node.id, childrenNodes);
-    const [newNodes, newEdges] = treeLayout.getTreeLayout();
-
-    setNodes(newNodes);
-    setEdges(newEdges);
+  const onNodeClick = async (_event: React.MouseEvent, node: Node) => {
+    const isExpanded = treeLayout.isExpanded(node.id);
+    if (!isExpanded) {
+      const children: childNodeResponse | null = await getChildren(node.id, dataset_id);
+      if (!children) return;
+      const childrenNodes = children.children.map(child => {
+        return {
+          id: child.id,
+          name: child.name,
+          children: []
+        };
+      });
+      treeLayout.expandNode(node.id, childrenNodes);
+      const [newNodes, newEdges] = treeLayout.getTreeLayout();
+      setNodes(newNodes);
+      setEdges(newEdges);
+    } else {
+      treeLayout.collapseNode(node.id);
+      const [newNodes, newEdges] = treeLayout.getTreeLayout();
+      setNodes(newNodes);
+      setEdges(newEdges);
+    }
   };
 
   const handleSearch = () => {
