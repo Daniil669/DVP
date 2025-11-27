@@ -2,13 +2,13 @@
  * Sources
  */
 export type uploadCSVResponse = {
-    message: String,
+    message: string,
     dataset_id: number,
-    sha256: String,
+    sha256: string,
     rows: number,
     filtered: boolean,
     eng_ids: number | null,
-    saved_as: String
+    saved_as: string
 }
 
 export type CsvFile = {
@@ -72,5 +72,14 @@ export type childNode = {
 };
 
 export type childPathResponse = {
-
+  path: {
+    path: nodeInPath[]
+  },
+  length: number
 };
+
+export type nodeInPath = {
+  id: string,
+  child_id: string,
+  child_name: string
+}

@@ -1,5 +1,6 @@
 import type { Edge, Node } from '@xyflow/react';
 import * as d3 from 'd3-hierarchy';
+import type { childPathResponse, nodeInPath } from '../responseTypes';
 
 export class TreeLayout {
   root: d3.HierarchyNode<any>;
@@ -76,5 +77,18 @@ export class TreeLayout {
   public isExpanded(nodeId: string): boolean {
     const target = this.root.descendants().find(d => d.data.id === nodeId);
     return (target?.data.children?.length ?? 0) > 0;
+  }
+
+  public expandPath(path: nodeInPath[]) {
+    path.forEach((node: nodeInPath) => {
+      if (node.child_id === "") return;
+      const child = {
+        id: node.child_id,
+        name: node.child_name,
+        children: [],
+        hasChildren: false
+      };
+      this.expandNode(node.id, [child]);
+    })
   }
 }

@@ -28,6 +28,6 @@ export class NodeService extends ApiService{
     }
 
     async getNodePath(datasetId: number, nodeId: string): Promise<childPathResponse | null> {
-        return await this.post(`/sources/children/path/${nodeId}?connection_id=${this.connectionId}&dataset_id=${datasetId}`, null, this.config)
+        return await this.get(`/sources/children/path/${nodeId}?connection_id=${this.connectionId}&dataset_id=${datasetId}`, this.config)
     }
 }

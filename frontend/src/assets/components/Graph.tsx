@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, type ChangeEvent } from 'react';
 import {
   ReactFlow,
   applyNodeChanges,
@@ -37,6 +37,7 @@ export default function Graph() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [show, setShow] = useState(false);
   const [filesUsed, setFilesUsed] = useState<UsedFile[]>([]);
+  const [searchString, setSearchString] = useState<string>('');
 
   const rootNodeId = location.state?.nodes[0];
   const datasetId = location.state?.fileData;
@@ -101,9 +102,20 @@ export default function Graph() {
     }
   };
 
-  const handleSearch = () => {
+  const handleSearch = async (nodeId: string) => {
+    const pathResp = await nodeService.getNodePath(datasetId, nodeId);
+    if (!pathResp) return;
+
+    treeLayout.expandPath(pathResp.path.path);
+    const [newNodes, newEdges] = treeLayout.getTreeLayout();
+    setNodes(newNodes);
+    setEdges(newEdges);
     handleClose();
   };
+
+  function handleOnChange(event: ChangeEvent<HTMLInputElement>): void {
+    setSearchString(event.target.value);
+  }
 
   return (
     <div className="graph-page-container">
@@ -120,8 +132,8 @@ export default function Graph() {
             <Form.Group className="mb-3" controlId="exampleForm.ControlInput1">
               <Form.Label>Search on the graph</Form.Label>
               <div style={{ display: 'flex', gap: '10px' }}>
-                <Form.Control type="text" placeholder="Enter the search string" />
-                <Button variant="primary" onClick={handleSearch}>
+                <Form.Control type="text" placeholder="Enter the search string" onChange={handleOnChange}/>
+                <Button variant="primary" onClick={() => handleSearch(searchString)}>
                   Search
                 </Button>
               </div>
