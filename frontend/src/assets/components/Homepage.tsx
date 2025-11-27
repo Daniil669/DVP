@@ -1,17 +1,15 @@
 import Button from '@mui/material/Button';
-import axios from 'axios';
 import TextField from '@mui/material/TextField';
 import { useState, type ChangeEvent } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { useNavigate } from 'react-router';
-
-const connection_id = '1';
+import { nodeService, sourceService } from '../services/service-instances';
 
 export default function Homepage() {
   const [file, setFile] = useState<File | null>(null);
   const navigate = useNavigate();
 
-  const handleUpload = (file: File | null) => {
+  const handleUpload = async (file: File | null) => {
     if (!file) {
       alert('Please select a file first.');
       return;
@@ -28,37 +26,21 @@ export default function Homepage() {
       console.log(`${key}:`, value);
     }
 
-    axios
-      .post('http://localhost:8000/api/upload_csv', formData, {
-        headers: {
-          'x-api-key': 'secret123'
-          // no need to manually set Content-Type, axios handles multipart boundaries
-        }
-      })
-      .then(res => {
-        console.log('Upload success', res);
-        handleNodeFetch(res.data.dataset_id);
-      })
-      .catch(err => console.error('Upload failed', err.response?.data || err));
+    const resp = await sourceService.uploadCSV(formData);
+    if (!resp) return;
+    handleNodeFetch(resp.dataset_id);
   };
 
-  const handleNodeFetch = (dataset_id: number) => {
-    axios
-      .get(`http://localhost:8000/api/root_node?connection_id=${connection_id}&dataset_id=${dataset_id}`, {
-        headers: {
-          'x-api-key': 'secret123'
+  const handleNodeFetch = async (dataset_id: number) => {
+    const rootNode = await nodeService.getRootNode(dataset_id)
+    if (rootNode) {
+      navigate('/graph', {
+        state: {
+          nodes: rootNode.root_nodes,
+          fileData: dataset_id
         }
-      })
-      .then(res => {
-        console.log('Root node fetched', res);
-        navigate('/graph', {
-          state: {
-            nodes: res.data.root_nodes,
-            fileData: dataset_id
-          }
-        });
-      })
-      .catch(err => console.error('Root node fetch error', err));
+      });
+    }
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {

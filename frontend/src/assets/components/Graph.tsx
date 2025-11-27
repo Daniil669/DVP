@@ -13,11 +13,11 @@ import Offcanvas from 'react-bootstrap/Offcanvas';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import ListGroup from 'react-bootstrap/ListGroup';
-import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import type { childNodeResponse } from '../responseTypes';
 import { TreeLayout } from '../core/TreeLayout';
 import CustomNode from './CustomNode';
+import { nodeService, sourceService } from '../services/service-instances';
 
 interface UsedFile {
   name: string;
@@ -25,7 +25,6 @@ interface UsedFile {
   size: number;
 }
 
-const connection_id = 1;
 let treeLayout: TreeLayout;
 
 const nodeTypes = {
@@ -40,19 +39,17 @@ export default function Graph() {
   const [filesUsed, setFilesUsed] = useState<UsedFile[]>([]);
 
   const rootNodeId = location.state?.nodes[0];
-  const dataset_id = location.state?.fileData;
+  const datasetId = location.state?.fileData;
 
   const handleClose = () => setShow(false);
   const handleShow = () => setShow(true);
 
   useEffect(() => {
-    axios
-      .get('http://localhost:8000/api/sources')
-      .then(res => {
-        console.log('Getting source success', res);
-        setFilesUsed(res.data.csv_files);
-      })
-      .catch(err => console.error('Getting source failed', err));
+    sourceService.getSources().then(res => {
+      if (res) {
+        setFilesUsed(res.csv_files);
+      }
+    });
     treeLayout = new TreeLayout(
       {
         id: rootNodeId,
@@ -82,7 +79,7 @@ export default function Graph() {
   const onNodeClick = async (_event: React.MouseEvent, node: Node) => {
     const isExpanded = treeLayout.isExpanded(node.id);
     if (!isExpanded) {
-      const children: childNodeResponse | null = await getChildren(node.id, dataset_id);
+      const children: childNodeResponse | null = await nodeService.getChildNodes(datasetId, node.id);
       if (!children) return;
       const childrenNodes = children.children.map(child => {
         return {
@@ -154,24 +151,3 @@ export default function Graph() {
     </div>
   );
 }
-
-const getChildren = async (nodeId: string, dataset_id: number): Promise<childNodeResponse | null> => {
-  const resp = axios
-    .get(
-      `http://localhost:8000/api/child_node?connection_id=${connection_id}&dataset_id=${dataset_id}&node_id=${nodeId}`,
-      {
-        headers: {
-          'x-api-key': 'secret123'
-        }
-      }
-    )
-    .then(res => {
-      console.log('Children Nodes Received', res.data);
-      return res.data;
-    })
-    .catch(err => {
-      console.error('Node Retrieval Failed', err);
-      return null;
-    });
-  return resp;
-};
