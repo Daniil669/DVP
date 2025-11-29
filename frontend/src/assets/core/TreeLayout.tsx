@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@xyflow/react';
 import * as d3 from 'd3-hierarchy';
-import type { childPathResponse, nodeInPath } from '../responseTypes';
+import type { nodeInPath } from '../responseTypes';
 
 export class TreeLayout {
   root: d3.HierarchyNode<any>;
