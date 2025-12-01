@@ -6,20 +6,24 @@ import {
   type NodeChange,
   type Node,
   type Edge,
-  type EdgeChange
+  type EdgeChange,
+  MiniMap,
+  Controls,
+  Background,
+  BackgroundVariant,
+  useReactFlow
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Offcanvas from 'react-bootstrap/Offcanvas';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
-import ListGroup from 'react-bootstrap/ListGroup';
 import ButtonGroup from 'react-bootstrap/ButtonGroup';
 import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import type { childNodeResponse } from '../responseTypes';
 import { TreeLayout } from '../core/TreeLayout';
 import CustomNode from './CustomNode';
-import { Maximize2, Minimize2, Sun, Moon, Database, Search, FileText, Clock } from 'lucide-react';
+import { Maximize2, Minimize2, Sun, Moon, Database, Search, FileText, Clock, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
 
 interface UsedFile {
   name: string;
@@ -42,7 +46,7 @@ export default function Graph() {
   const [filesUsed, setFilesUsed] = useState<UsedFile[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [layout, setLayout] = useState<'vertical' | 'horizontal'>('vertical');
+  const [layout, setLayout] = useState<'vertical' | 'horizontal'>('horizontal');
   const [searchQuery, setSearchQuery] = useState('');
 
   const rootNodeId = location.state?.nodes[0];
@@ -66,16 +70,23 @@ export default function Graph() {
         children: []
       },
       [120, 40],
-      50
+      50,
+      'horizontal' // Start with horizontal layout
     );
-  }, []);
-
-  useEffect(() => {
     const [initNodes, initEdges] = treeLayout.getTreeLayout();
     setNodes(initNodes);
     setEdges(initEdges);
-    console.log(initNodes, initEdges);
   }, []);
+
+ 
+  useEffect(() => {
+    if (treeLayout) {
+      treeLayout.setLayout(layout);
+      const [newNodes, newEdges] = treeLayout.getTreeLayout();
+      setNodes(newNodes);
+      setEdges(newEdges);
+    }
+  }, [layout]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes(nodesSnapshot => applyNodeChanges(changes, nodesSnapshot)),
@@ -322,7 +333,7 @@ export default function Graph() {
               height: '64px',
               borderRadius: '50%',
               background: theme === 'light'
-                ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                ? 'linear-gradient(135deg, #fea35dff 0%, #ff6f00ff 100%)'
                 : 'linear-gradient(135deg, #434343 0%, #000000 100%)',
               marginBottom: '16px',
               boxShadow: theme === 'light'
@@ -362,7 +373,7 @@ export default function Graph() {
                   onClick={handleShow}
                   style={{
                     background: theme === 'light'
-                      ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                      ? 'linear-gradient(100deg, #6784f6ff 0%, #0022ffff 100%)'
                       : 'linear-gradient(135deg, #434343 0%, #000000 100%)',
                     border: 'none',
                     borderRadius: '10px',
@@ -395,26 +406,26 @@ export default function Graph() {
                   <span style={{ ...textStyle, fontWeight: 500, fontSize: '0.95rem' }}>Layout:</span>
                   <ButtonGroup size="sm">
                     <Button
-                      variant={getButtonVariant('vertical')}
-                      onClick={() => setLayout('vertical')}
+                      variant={getButtonVariant('horizontal')}
+                      onClick={() => setLayout('horizontal')}
                       style={{ 
                         borderRadius: '8px 0 0 8px',
                         fontWeight: 500,
                         padding: '8px 16px'
                       }}
                     >
-                      Vertical
+                      Horizontal
                     </Button>
                     <Button
-                      variant={getButtonVariant('horizontal')}
-                      onClick={() => setLayout('horizontal')}
+                      variant={getButtonVariant('vertical')}
+                      onClick={() => setLayout('vertical')}
                       style={{ 
                         borderRadius: '0 8px 8px 0',
                         fontWeight: 500,
                         padding: '8px 16px'
                       }}
                     >
-                      Horizontal
+                      Vertical
                     </Button>
                   </ButtonGroup>
                 </div>
@@ -467,7 +478,33 @@ export default function Graph() {
               onEdgesChange={onEdgesChange}
               onNodeClick={onNodeClick}
               fitView
-            />
+              minZoom={0.1}
+              maxZoom={4}
+              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+            >
+              <Background 
+                variant={BackgroundVariant.Dots} 
+                gap={16} 
+                size={1}
+                color={theme === 'light' ? '#ddd' : '#444'}
+              />
+              <Controls 
+                style={{
+                  background: theme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(45, 45, 45, 0.9)',
+                  border: theme === 'light' ? '1px solid #ddd' : '1px solid #555',
+                  borderRadius: '8px'
+                }}
+              />
+              <MiniMap 
+                nodeColor={theme === 'light' ? '#667eea' : '#888'}
+                maskColor={theme === 'light' ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)'}
+                style={{
+                  background: theme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(45, 45, 45, 0.9)',
+                  border: theme === 'light' ? '1px solid #ddd' : '1px solid #555',
+                  borderRadius: '8px'
+                }}
+              />
+            </ReactFlow>
           </div>
         </div>
       )}
@@ -507,7 +544,32 @@ export default function Graph() {
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
             fitView
-          />
+            minZoom={0.1}
+            maxZoom={4}
+          >
+            <Background 
+              variant={BackgroundVariant.Dots} 
+              gap={16} 
+              size={1}
+              color={theme === 'light' ? '#ddd' : '#444'}
+            />
+            <Controls 
+              style={{
+                background: theme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(45, 45, 45, 0.9)',
+                border: theme === 'light' ? '1px solid #ddd' : '1px solid #555',
+                borderRadius: '8px'
+              }}
+            />
+            <MiniMap 
+              nodeColor={theme === 'light' ? '#667eea' : '#888'}
+              maskColor={theme === 'light' ? 'rgba(0, 0, 0, 0.1)' : 'rgba(255, 255, 255, 0.1)'}
+              style={{
+                background: theme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(45, 45, 45, 0.9)',
+                border: theme === 'light' ? '1px solid #ddd' : '1px solid #555',
+                borderRadius: '8px'
+              }}
+            />
+          </ReactFlow>
         </div>
       )}
     </div>

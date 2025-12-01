@@ -115,7 +115,7 @@ export default function Homepage() {
     <Box
       sx={{
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: '#ff6f00ff',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -142,7 +142,7 @@ export default function Homepage() {
                 width: 80,
                 height: 80,
                 borderRadius: '50%',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: '#555dfaff',
                 mb: 2,
                 boxShadow: '0 4px 20px rgba(102, 126, 234, 0.4)'
               }}
@@ -154,7 +154,7 @@ export default function Homepage() {
               gutterBottom
               sx={{
                 fontWeight: 700,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: '#666565ff',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
                 mb: 1
