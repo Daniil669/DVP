@@ -18,7 +18,6 @@ export class TreeLayout {
     this.treeLayout = d3.tree().nodeSize([this.nodeWidth + this.spacing, this.nodeHeight + this.spacing]);
     this.nodes = [];
     this.edges = [];
-    console.log('');
     this.updateTree();
   }
 
@@ -28,9 +27,14 @@ export class TreeLayout {
     this.edges = [];
 
     this.root.descendants().forEach(d => {
-      let hasChildren = true;
+      const declaredNum = d.data.numChildren;
+      const localChildrenCount = (d.data.children?.length ?? 0);
+      let hasChildren = false;
+      if (declaredNum) {
+        hasChildren = declaredNum > localChildrenCount;
+      }
+
       if (d.parent) {
-        hasChildren = d.data.hasChildren ?? (d.children && d.children.length > 0);
         this.edges.push({
           id: `${d.parent.data.id}-${d.data.id}`,
           source: d.parent.data.id,
@@ -41,22 +45,23 @@ export class TreeLayout {
       const expanded = this.isExpanded(d.data.id);
       this.nodes.push({
         id: d.data.id,
-        data: { label: d.data.name, hasChildren, expanded },
+        data: { label: d.data.name, numChildren: declaredNum, hasChildren, expanded },
         position: { x: d.x, y: d.y },
         style: { width: this.nodeWidth, height: this.nodeHeight },
         type: 'customNode'
       });
     });
-    console.log(this.root);
   }
 
   public expandNode(nodeId: string, childData: any[]) {
     const target = this.root.descendants().find(d => d.data.id === nodeId);
     if (!target) return;
     if (!target.data.children) target.data.children = [];
-    if (target.data.children.length > 0) return;
 
-    target.data.children.push(...childData);
+    const existingIds = new Set((target.data.children ?? []).map((c: any) => c.id));
+    const newChildren = childData.filter((child) => !existingIds.has(child.id));
+
+    target.data.children.push(...newChildren);
 
     this.root = d3.hierarchy(this.root.data);
     this.updateTree();
@@ -77,6 +82,11 @@ export class TreeLayout {
   public isExpanded(nodeId: string): boolean {
     const target = this.root.descendants().find(d => d.data.id === nodeId);
     return (target?.data.children?.length ?? 0) > 0;
+  }
+
+  public numberOfChildren(nodeId: string): number {
+    const target = this.root.descendants().find(d => d.data.id === nodeId);
+    return target?.data.children?.length;
   }
 
   public expandPath(path: nodeInPath[]) {

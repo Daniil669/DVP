@@ -41,6 +41,7 @@ export default function Graph() {
   const [searchString, setSearchString] = useState<string>('');
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedSource, setSelectedSource] = useState<formattedSource>();
+  const [numberChildren, setNumberChildren] = useState<number | null>(null);
 
   const [searchParams] = useSearchParams();
   const datasetId = parseInt(searchParams.get("datasetId")!);
@@ -88,16 +89,18 @@ export default function Graph() {
     []
   );
   const onNodeClick = async (_event: React.MouseEvent, node: Node) => {
-    const isExpanded = treeLayout.isExpanded(node.id);
-    if (!isExpanded) {
-      const children: childNodeResponse | null = await nodeService.getChildNodes(datasetId, node.id);
-      if (!children) return;
+    const childrenExpanded = treeLayout.numberOfChildren(node.id)
+    const childrenToFetch = numberChildren ? (numberChildren + childrenExpanded) : null;
+    const children: childNodeResponse | null = await nodeService.getChildNodes(datasetId, node.id, childrenToFetch);
+    if (!children) return;
+    const fullyExpanded = children.count_children === childrenExpanded;
+    if (!fullyExpanded) {
       const childrenNodes = children.children.map(child => {
         return {
           id: child.id,
           name: child.name,
           children: [],
-          hasChildren: child.has_children ?? false
+          numChildren: child.num_children ?? 0
         };
       });
       treeLayout.expandNode(node.id, childrenNodes);
@@ -136,6 +139,11 @@ export default function Graph() {
   function handleOnChange(event: ChangeEvent<HTMLInputElement>): void {
     setSearchString(event.target.value);
   }
+  
+  const handleNumChildrenChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value == '101' ? null : parseInt(event.target.value)
+    setNumberChildren(value);
+  }
 
   return (
     <div className="graph-page-container">
@@ -163,6 +171,18 @@ export default function Graph() {
           <Offcanvas.Title>Manage data</Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body>
+          <Form.Label>
+            Number of Children to Expand
+          </Form.Label>
+          <Form.Range
+            value={numberChildren ?? 101}
+            name='hello'
+            onChange={handleNumChildrenChange}
+            min={1}
+            max={101}
+            step={1}
+          />
+          <p>Fetch {numberChildren ?? 'ALL'} children</p>
           <Form>
             <Form.Group className="mb-3" controlId="exampleForm.ControlInput1">
               <Form.Label>Search on the graph</Form.Label>
