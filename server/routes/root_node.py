@@ -28,6 +28,10 @@ async def get_root_node(
     async with Session() as sess:
         repo = SqlGraphRepository(sess)
         roots = await repo.list_roots(dataset_id)
+        children_count = {}
         if not roots:
             return {"message": "no roots found", "root_nodes": [], "count": 0}
-        return {"message": "roots", "root_nodes": roots, "count": len(roots)}
+        for root in roots:
+            children = await repo.get_children(dataset_id, parent_id=root)
+            children_count[root] = len(children)
+        return {"message": "roots", "root_nodes": roots, "count": len(roots), "children_count": children_count}
