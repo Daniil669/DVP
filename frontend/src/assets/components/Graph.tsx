@@ -165,7 +165,7 @@ export default function Graph() {
   }
   
   const handleNumChildrenChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const value = event.target.value == '101' ? null : parseInt(event.target.value)
+    const value = event.target.value == '0' || event.target.value == '' ? null : parseInt(event.target.value)
     setNumberChildren(value);
   }
 
@@ -288,17 +288,18 @@ export default function Graph() {
             border: '1px solid rgba(255, 255, 255, 0.2)'
           }}>
             <Form.Label>
-            Number of Children to Expand
-          </Form.Label>
-          <Form.Range
-            value={numberChildren ?? 101}
-            name='hello'
-            onChange={handleNumChildrenChange}
-            min={1}
-            max={101}
-            step={1}
-          />
-          <p>Fetch {numberChildren ?? 'ALL'} children</p>
+              Number of Children to Expand:
+            </Form.Label>
+            <br/>
+            <input 
+              type="number"
+              value={numberChildren ?? 0}
+              onChange={handleNumChildrenChange}
+              min={0}
+              max={100}
+              step={1}
+            />
+            <p>{numberChildren ? '' : '**All Nodes will be fetched'}</p>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
               <Search size={20} />
               <span style={{ fontWeight: 600, fontSize: '1.1rem' }}>Search Graph</span>
