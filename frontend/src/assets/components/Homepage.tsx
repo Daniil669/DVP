@@ -3,7 +3,7 @@ import TextField from '@mui/material/TextField';
 import { useState, type ChangeEvent } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { useNavigate } from 'react-router';
-import { nodeService, sourceService } from '../services/service-instances';
+import { sourceService } from '../services/service-instances';
 
 export default function Homepage() {
   const [file, setFile] = useState<File | null>(null);
@@ -28,19 +28,7 @@ export default function Homepage() {
 
     const resp = await sourceService.uploadCSV(formData);
     if (!resp) return;
-    handleNodeFetch(resp.dataset_id);
-  };
-
-  const handleNodeFetch = async (dataset_id: number) => {
-    const rootNode = await nodeService.getRootNode(dataset_id)
-    if (rootNode) {
-      navigate('/graph', {
-        state: {
-          nodes: rootNode.root_nodes,
-          fileData: dataset_id
-        }
-      });
-    }
+    navigate(`/graph?datasetId=${resp.dataset_id}`);
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {

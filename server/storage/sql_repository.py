@@ -82,7 +82,7 @@ class SqlGraphRepository:
         if not rows:
             return []
         
-        # Build result with has_children flag
+        # Build result with num_children
         result = []
         for row in rows:
             # Check if this child has children
@@ -91,14 +91,14 @@ class SqlGraphRepository:
                 (Relationship.parent_item == row.child_item)
             )
             count_res = await self._db.execute(check_q)
-            has_children = count_res.scalar() > 0
+            num_children = count_res.scalar()
             
             result.append({
                 "id": row.child_item,
                 "name": row.child_item,
                 "sequence_no": row.sequence_no,
                 "level": row.level,
-                "has_children": has_children  # True if has children, False if not
+                "num_children": num_children  # Number of Children
             })
         
         return result

@@ -68,7 +68,7 @@ export type childNode = {
   name: string;
   sequence_no: number;
   level: number;
-  has_children: boolean;
+  num_children: number;
 };
 
 export type childPathResponse = {

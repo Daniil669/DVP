@@ -13,16 +13,17 @@ import Offcanvas from 'react-bootstrap/Offcanvas';
 import Button from 'react-bootstrap/Button';
 import Form from 'react-bootstrap/Form';
 import ListGroup from 'react-bootstrap/ListGroup';
-import { useLocation } from 'react-router-dom';
-import type { childNodeResponse } from '../responseTypes';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import type { childNodeResponse, DatasetInfo, DatasetsByConnection, sourcesResponse } from '../responseTypes';
 import { TreeLayout } from '../core/TreeLayout';
 import CustomNode from './CustomNode';
 import { nodeService, sourceService } from '../services/service-instances';
+import { Modal } from 'react-bootstrap';
 
-interface UsedFile {
-  name: string;
-  modified_at: number;
-  size: number;
+type formattedSource = {
+  connectionId: number,
+  datasetId: number,
+  originalName: string,
 }
 
 let treeLayout: TreeLayout;
@@ -32,42 +33,52 @@ const nodeTypes = {
 };
 
 export default function Graph() {
-  const location = useLocation();
+  const navigate = useNavigate();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [show, setShow] = useState(false);
-  const [filesUsed, setFilesUsed] = useState<UsedFile[]>([]);
+  const [filesUsed, setFilesUsed] = useState<formattedSource[]>([]);
   const [searchString, setSearchString] = useState<string>('');
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [selectedSource, setSelectedSource] = useState<formattedSource>();
+  const [numberChildren, setNumberChildren] = useState<number | null>(null);
 
-  const rootNodeId = location.state?.nodes[0];
-  const datasetId = location.state?.fileData;
+  const [searchParams] = useSearchParams();
+  const datasetId = parseInt(searchParams.get("datasetId")!);
 
   const handleClose = () => setShow(false);
   const handleShow = () => setShow(true);
+  const handleCloseConfirmation = () => {
+    setSelectedSource(undefined);
+    setShowConfirm(false);
+  }
+  const handleShowConfirmation = (source: formattedSource) => {
+    setSelectedSource(source);
+    setShowConfirm(true);
+  }
 
   useEffect(() => {
     sourceService.getSources().then(res => {
       if (res) {
-        setFilesUsed(res.csv_files);
+        setFilesUsed(formatSources(res, datasetId));
       }
     });
-    treeLayout = new TreeLayout(
-      {
-        id: rootNodeId,
-        name: rootNodeId,
-        children: []
-      },
-      [120, 40],
-      50
-    );
-  }, []);
-
-  useEffect(() => {
-    const [initNodes, initEdges] = treeLayout.getTreeLayout();
-    setNodes(initNodes);
-    setEdges(initEdges);
-    console.log(initNodes, initEdges);
-  }, []);
+    nodeService.getRootNode(datasetId).then(res => {
+      const rootNodeId = res?.root_nodes[0];
+      treeLayout = new TreeLayout(
+        {
+          id: rootNodeId,
+          name: rootNodeId,
+          children: []
+        },
+        [120, 40],
+        50
+      );
+      const [initNodes, initEdges] = treeLayout.getTreeLayout();
+      setNodes(initNodes);
+      setEdges(initEdges);
+    });
+  }, [datasetId]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes(nodesSnapshot => applyNodeChanges(changes, nodesSnapshot)),
@@ -78,16 +89,18 @@ export default function Graph() {
     []
   );
   const onNodeClick = async (_event: React.MouseEvent, node: Node) => {
-    const isExpanded = treeLayout.isExpanded(node.id);
-    if (!isExpanded) {
-      const children: childNodeResponse | null = await nodeService.getChildNodes(datasetId, node.id);
-      if (!children) return;
+    const childrenExpanded = treeLayout.numberOfChildren(node.id)
+    const childrenToFetch = numberChildren ? (numberChildren + childrenExpanded) : null;
+    const children: childNodeResponse | null = await nodeService.getChildNodes(datasetId, node.id, childrenToFetch);
+    if (!children) return;
+    const fullyExpanded = children.count_children === childrenExpanded;
+    if (!fullyExpanded) {
       const childrenNodes = children.children.map(child => {
         return {
           id: child.id,
           name: child.name,
           children: [],
-          hasChildren: child.has_children ?? false
+          numChildren: child.num_children ?? 0
         };
       });
       treeLayout.expandNode(node.id, childrenNodes);
@@ -101,6 +114,16 @@ export default function Graph() {
       setEdges(newEdges);
     }
   };
+
+  const handleNewSource = async () => {
+    if (!selectedSource) {
+      console.error("Hmmm, no new source has been selected");
+      return;
+    }
+    navigate(`/graph?datasetId=${selectedSource.datasetId}`);
+    handleCloseConfirmation();
+    handleClose();
+  }
 
   const handleSearch = async (nodeId: string) => {
     const pathResp = await nodeService.getNodePath(datasetId, nodeId);
@@ -116,6 +139,11 @@ export default function Graph() {
   function handleOnChange(event: ChangeEvent<HTMLInputElement>): void {
     setSearchString(event.target.value);
   }
+  
+  const handleNumChildrenChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value == '101' ? null : parseInt(event.target.value)
+    setNumberChildren(value);
+  }
 
   return (
     <div className="graph-page-container">
@@ -123,11 +151,38 @@ export default function Graph() {
         Open side menu
       </Button>
 
+      <Modal show={showConfirm} onHide={handleCloseConfirmation}>
+        <Modal.Header closeButton>
+          <Modal.Title>Switch sources</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>Are you sure you would like to switch sources</Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={handleCloseConfirmation}>
+            Keep this source
+          </Button>
+          <Button variant="primary" onClick={handleNewSource}>
+            Change to new source
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       <Offcanvas style={{ width: '450px' }} show={show} onHide={handleClose}>
         <Offcanvas.Header closeButton>
           <Offcanvas.Title>Manage data</Offcanvas.Title>
         </Offcanvas.Header>
         <Offcanvas.Body>
+          <Form.Label>
+            Number of Children to Expand
+          </Form.Label>
+          <Form.Range
+            value={numberChildren ?? 101}
+            name='hello'
+            onChange={handleNumChildrenChange}
+            min={1}
+            max={101}
+            step={1}
+          />
+          <p>Fetch {numberChildren ?? 'ALL'} children</p>
           <Form>
             <Form.Group className="mb-3" controlId="exampleForm.ControlInput1">
               <Form.Label>Search on the graph</Form.Label>
@@ -141,12 +196,12 @@ export default function Graph() {
           </Form>
           <br />
           <Form.Label>The list of recent uploaded files:</Form.Label>
-          {filesUsed.length > 0 &&
-            filesUsed.map(f => (
-              <ListGroup style={{ width: '380px', cursor: 'pointer' }}>
-                <ListGroup.Item>{f.name}</ListGroup.Item>
-              </ListGroup>
+          
+          <ListGroup style={{ width: '380px' }}>
+            {filesUsed.length > 0 && filesUsed.map(f => (
+              <ListGroup.Item action onClick={() => handleShowConfirmation(f)}>{f.originalName}</ListGroup.Item>
             ))}
+          </ListGroup>
         </Offcanvas.Body>
       </Offcanvas>
       <div style={{ width: '100vw', height: '100vh' }}>
@@ -162,4 +217,20 @@ export default function Graph() {
       </div>
     </div>
   );
+}
+
+const formatSources = (sources: sourcesResponse, currentDataset: number) => {
+  const response: formattedSource[] = [];
+  sources.datasets_by_connection.forEach((connection: DatasetsByConnection) => {
+    connection.datasets.forEach((dataset: DatasetInfo) => {
+      if (dataset.dataset_id !== currentDataset) 
+        response.push({
+          connectionId: connection.connection_id,
+          datasetId: dataset.dataset_id,
+          originalName: dataset.original_name
+        })
+      }
+    )
+  });
+  return response;
 }
