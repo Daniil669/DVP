@@ -53,7 +53,8 @@ export type sourcesResponse = {
 export type rootNodeResponse = {
   root_nodes: string[];
   message: string;
-  count: number
+  count: number;
+  children_count: { [key: string]: number }
 };
 
 export type childNodeResponse = {

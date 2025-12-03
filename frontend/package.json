@@ -19,6 +19,7 @@
         "bootstrap": "^5.3.8",
         "d3-hierarchy": "^3.1.2",
         "ESlint": "npm:eslint@^9.35.0",
+        "lucide-react": "^0.555.0",
         "mui": "^0.0.1",
         "prettier": "^3.6.2",
         "react": "^19.1.1",
